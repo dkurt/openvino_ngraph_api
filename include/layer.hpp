@@ -12,7 +12,7 @@ class Layer {
 public:
   Layer(Ptr<dnn::Layer> cvLayer);
 
-  virtual std::shared_ptr<ngraph::Node> initNGraph(std::shared_ptr<ngraph::Node> input) = 0;
+  virtual std::shared_ptr<ngraph::Node> initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs) = 0;
 
 protected:
   std::string name;
@@ -22,7 +22,7 @@ class ConvolutionLayer : public Layer {
 public:
   ConvolutionLayer(Ptr<dnn::Layer> cvLayer);
 
-  virtual std::shared_ptr<ngraph::Node> initNGraph(std::shared_ptr<ngraph::Node> input);
+  virtual std::shared_ptr<ngraph::Node> initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs);
 
 private:
   Mat weights, biases;
@@ -35,14 +35,14 @@ class ReLULayer : public Layer {
 public:
   ReLULayer(Ptr<dnn::Layer> cvLayer);
 
-  virtual std::shared_ptr<ngraph::Node> initNGraph(std::shared_ptr<ngraph::Node> input);
+  virtual std::shared_ptr<ngraph::Node> initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs);
 };
 
 class LRNLayer : public Layer {
 public:
   LRNLayer(Ptr<dnn::Layer> cvLayer);
 
-  virtual std::shared_ptr<ngraph::Node> initNGraph(std::shared_ptr<ngraph::Node> input);
+  virtual std::shared_ptr<ngraph::Node> initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs);
 
 private:
   double alpha, beta, bias;
@@ -55,19 +55,20 @@ class PoolingLayer : public Layer {
 public:
   PoolingLayer(Ptr<dnn::Layer> cvLayer);
 
-  virtual std::shared_ptr<ngraph::Node> initNGraph(std::shared_ptr<ngraph::Node> input);
+  virtual std::shared_ptr<ngraph::Node> initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs);
 
 private:
   std::vector<size_t> kernel_size, strides, pads_begin, pads_end;
   std::string padMode;  // "VALID", "SAME" or empty
-  bool ceilMode;  //
+  bool ceilMode, globalPooling;
+  std::string type;
 };
 
 class FullyConnectedLayer : public Layer {
 public:
   FullyConnectedLayer(Ptr<dnn::Layer> cvLayer);
 
-  virtual std::shared_ptr<ngraph::Node> initNGraph(std::shared_ptr<ngraph::Node> input);
+  virtual std::shared_ptr<ngraph::Node> initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs);
 
 private:
   Mat weights, biases;
@@ -77,5 +78,19 @@ class SoftMaxLayer : public Layer {
 public:
   SoftMaxLayer(Ptr<dnn::Layer> cvLayer);
 
-  virtual std::shared_ptr<ngraph::Node> initNGraph(std::shared_ptr<ngraph::Node> input);
+  virtual std::shared_ptr<ngraph::Node> initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs);
+};
+
+class ConcatLayer : public Layer {
+public:
+  ConcatLayer(Ptr<dnn::Layer> cvLayer);
+
+  virtual std::shared_ptr<ngraph::Node> initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs);
+};
+
+class FlattenLayer : public Layer {
+public:
+  FlattenLayer(Ptr<dnn::Layer> cvLayer);
+
+  virtual std::shared_ptr<ngraph::Node> initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs);
 };

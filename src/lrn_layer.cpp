@@ -13,10 +13,10 @@ LRNLayer::LRNLayer(Ptr<dnn::Layer> cvLayer) : Layer(cvLayer) {
   normType = lrn->type == 0 ? "ACROSS_CHANNELS" : "WITHIN_CHANNEL";
 }
 
-std::shared_ptr<ngraph::Node> LRNLayer::initNGraph(std::shared_ptr<ngraph::Node> input) {
+std::shared_ptr<ngraph::Node> LRNLayer::initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs) {
   double alphaSize = alpha;
   if (!normBySize)
       alphaSize *= (normType == "WITHIN_CHANNEL" ? size*size : size);
 
-  return std::make_shared<ngraph::op::LRN>(input, alpha, beta, bias, size);
+  return std::make_shared<ngraph::op::LRN>(inputs[0], alpha, beta, bias, size);
 }

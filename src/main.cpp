@@ -14,8 +14,11 @@ void normAssert(Mat ref, Mat test, double l1 = 0.00001, double lInf = 0.0001);
 
 int main(int argc, char** argv) {
   // Read source network from file.
-  dnn::Net cvNet = dnn::readNet(utils::fs::join("..", "bvlc_alexnet.caffemodel"),
-                                utils::fs::join("..", "bvlc_alexnet.prototxt"));
+  // dnn::Net cvNet = dnn::readNet(utils::fs::join("..", "bvlc_alexnet.caffemodel"),
+  //                               utils::fs::join("..", "bvlc_alexnet.prototxt"));
+
+  dnn::Net cvNet = dnn::readNet(utils::fs::join("..", "squeezenet_v1.1.caffemodel"),
+                                utils::fs::join("..", "squeezenet_v1.1.prototxt"));
 
   // Get input shapes. Note: works for Caffe and IR models.
   std::vector<std::vector<int> > inLayerShapes;
@@ -28,9 +31,21 @@ int main(int argc, char** argv) {
   std::shared_ptr<ngraph::Node> input = std::make_shared<ngraph::op::Parameter>(ngraph::element::f32, ngraph::Shape(inpShape));
   std::shared_ptr<ngraph::Node> node = input;
 
+  // Map layers indices to nGraph nodes.
+  std::map<int, std::shared_ptr<ngraph::Node> > nodes;
+  nodes[0] = input;
+
   // Iterate over layers and build nGraph model.
   for (int i = 0, n = cvNet.getLayerNames().size(); i < n; ++i) {
     Ptr<dnn::Layer> cvLayer = cvNet.getLayer(i + 1);
+
+    std::vector<std::shared_ptr<ngraph::Node> > inputs;
+    for (const auto& inp : cvNet.getLayerInputs(i + 1)) {
+      int id = cvNet.getLayerId(inp->name);
+      CV_Assert(nodes.find(id) != nodes.end());
+      inputs.push_back(nodes[id]);
+    }
+    CV_Assert(!inputs.empty());
 
     Ptr<Layer> l;
     if (cvLayer->type == "") {
@@ -44,15 +59,21 @@ int main(int argc, char** argv) {
       l = Ptr<Layer>(new PoolingLayer(cvLayer));
     } else if (cvLayer->type == "InnerProduct") {
       l = Ptr<Layer>(new FullyConnectedLayer(cvLayer));
-    } else if (cvLayer->type == "Dropout") {
-      continue;
     } else if (cvLayer->type == "Softmax") {
       l = Ptr<Layer>(new SoftMaxLayer(cvLayer));
+    } else if (cvLayer->type == "Concat") {
+      l = Ptr<Layer>(new ConcatLayer(cvLayer));
+    } else if (cvLayer->type == "Flatten") {
+      l = Ptr<Layer>(new FlattenLayer(cvLayer));
+    } else if (cvLayer->type == "Dropout") {
+      nodes[i + 1] = node;
+      continue;
     } else {
       CV_Error(Error::StsNotImplemented, "Unknown layer type: " + cvLayer->type);
     }
 
-    node = l->initNGraph(node);
+    node = l->initNGraph(inputs);
+    nodes[i + 1] = node;
   }
 
   // Convert nGraph function to Inference Engine's network.

@@ -17,9 +17,9 @@ ConvolutionLayer::ConvolutionLayer(Ptr<dnn::Layer> cvLayer) : Layer(cvLayer) {
   padMode = conv->padMode;
 }
 
-std::shared_ptr<ngraph::Node> ConvolutionLayer::initNGraph(std::shared_ptr<ngraph::Node> input) {
+std::shared_ptr<ngraph::Node> ConvolutionLayer::initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs) {
   const int outChannels = weights.size[0];
-  const int inpChannels = input->get_shape()[1];
+  const int inpChannels = inputs[0]->get_shape()[1];
   int group = inpChannels / weights.size[1];
 
   auto ieWeights = wrapMatToConstant(weights);
@@ -37,7 +37,7 @@ std::shared_ptr<ngraph::Node> ConvolutionLayer::initNGraph(std::shared_ptr<ngrap
   std::shared_ptr<ngraph::Node> conv;
   if (group == 1) {
     conv = std::make_shared<ngraph::op::v1::Convolution>(
-                  input, ieWeights,
+                  inputs[0], ieWeights,
                   ngraph::Strides(strides),
                   ngraph::CoordinateDiff(pads_begin),
                   ngraph::CoordinateDiff(pads_end),
@@ -46,7 +46,7 @@ std::shared_ptr<ngraph::Node> ConvolutionLayer::initNGraph(std::shared_ptr<ngrap
   }
   else {
     conv = std::make_shared<ngraph::op::GroupConvolution>(
-                  input, ieWeights,
+                  inputs[0], ieWeights,
                   ngraph::Strides(strides),
                   ngraph::Strides(dilations),
                   ngraph::CoordinateDiff(pads_begin),

@@ -86,11 +86,48 @@ public:
   ConcatLayer(Ptr<dnn::Layer> cvLayer);
 
   virtual std::shared_ptr<ngraph::Node> initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs);
+
+private:
+  int axis;
 };
 
 class FlattenLayer : public Layer {
 public:
   FlattenLayer(Ptr<dnn::Layer> cvLayer);
+
+  virtual std::shared_ptr<ngraph::Node> initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs);
+};
+
+class PermuteLayer : public Layer {
+public:
+  PermuteLayer(Ptr<dnn::Layer> cvLayer);
+
+  virtual std::shared_ptr<ngraph::Node> initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs);
+};
+
+class PriorBoxLayer : public Layer {
+public:
+  PriorBoxLayer(Ptr<dnn::Layer> cvLayer);
+
+  virtual std::shared_ptr<ngraph::Node> initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs);
+
+private:
+  int idx;
+};
+
+class ReshapeLayer : public Layer {
+public:
+  ReshapeLayer(Ptr<dnn::Layer> cvLayer);
+
+  virtual std::shared_ptr<ngraph::Node> initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs);
+
+private:
+  std::vector<size_t> shape;
+};
+
+class DetectionOutputLayer : public Layer {
+public:
+  DetectionOutputLayer(Ptr<dnn::Layer> cvLayer);
 
   virtual std::shared_ptr<ngraph::Node> initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs);
 };

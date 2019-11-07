@@ -12,13 +12,33 @@ static void genData(const std::vector<size_t>& dims, Mat& m, InferenceEngine::Bl
 
 void normAssert(Mat ref, Mat test, double l1 = 0.00001, double lInf = 0.0001);
 
+void normAssertDetections(Mat ref, Mat out, double confThreshold = 1e-6,
+                          double scores_diff = 1e-5, double boxes_iou_diff = 1e-4);
+
+void normAssertDetections(
+        const std::vector<int>& refClassIds,
+        const std::vector<float>& refScores,
+        const std::vector<cv::Rect2d>& refBoxes,
+        const std::vector<int>& testClassIds,
+        const std::vector<float>& testScores,
+        const std::vector<cv::Rect2d>& testBoxes,
+        double confThreshold /*= 0.0*/,
+        double scores_diff /*= 1e-5*/, double boxes_iou_diff /*= 1e-4*/);
+
+std::vector<cv::Rect2d> matToBoxes(const cv::Mat& m);
+
 int main(int argc, char** argv) {
   // Read source network from file.
+  // bool testSSD = false;
   // dnn::Net cvNet = dnn::readNet(utils::fs::join("..", "bvlc_alexnet.caffemodel"),
   //                               utils::fs::join("..", "bvlc_alexnet.prototxt"));
 
-  dnn::Net cvNet = dnn::readNet(utils::fs::join("..", "squeezenet_v1.1.caffemodel"),
-                                utils::fs::join("..", "squeezenet_v1.1.prototxt"));
+  // dnn::Net cvNet = dnn::readNet(utils::fs::join("..", "squeezenet_v1.1.caffemodel"),
+  //                               utils::fs::join("..", "squeezenet_v1.1.prototxt"));
+
+  bool testSSD = true;
+  dnn::Net cvNet = dnn::readNet(utils::fs::join("..", "MobileNetSSD_deploy.caffemodel"),
+                                utils::fs::join("..", "MobileNetSSD_deploy.prototxt"));
 
   // Get input shapes. Note: works for Caffe and IR models.
   std::vector<std::vector<int> > inLayerShapes;
@@ -65,6 +85,14 @@ int main(int argc, char** argv) {
       l = Ptr<Layer>(new ConcatLayer(cvLayer));
     } else if (cvLayer->type == "Flatten") {
       l = Ptr<Layer>(new FlattenLayer(cvLayer));
+    } else if (cvLayer->type == "Permute") {
+      l = Ptr<Layer>(new PermuteLayer(cvLayer));
+    } else if (cvLayer->type == "PriorBox") {
+      l = Ptr<Layer>(new PriorBoxLayer(cvLayer));
+    } else if (cvLayer->type == "Reshape") {
+      l = Ptr<Layer>(new ReshapeLayer(cvLayer));
+    } else if (cvLayer->type == "DetectionOutput") {
+      l = Ptr<Layer>(new DetectionOutputLayer(cvLayer));
     } else if (cvLayer->type == "Dropout") {
       nodes[i + 1] = node;
       continue;
@@ -94,6 +122,12 @@ int main(int argc, char** argv) {
   }
   infRequest.SetInput(inputBlobs);
 
+  if (testSSD) {
+    // Tets on real data.
+    dnn::blobFromImage(imread("example.jpg"), inputMat,
+                       0.007843, Size(300, 300), Scalar(127.5, 127.5, 127.5));
+  }
+
   for (auto& it : cnn.getOutputsInfo())
   {
       genData(it.second->getTensorDesc().getDims(), ieOutputMat, outputBlobs[it.first]);
@@ -108,7 +142,10 @@ int main(int argc, char** argv) {
   Mat cvOut = cvNet.forward();
 
   // Compare outputs from OpenCV and Inference Engine.
-  normAssert(ieOutputMat, cvOut);
+  if (testSSD)
+    normAssertDetections(ieOutputMat, cvOut);
+  else
+    normAssert(ieOutputMat, cvOut);
 
   return 0;
 }
@@ -133,4 +170,92 @@ void normAssert(Mat ref, Mat test, double l1, double lInf)
 
     std::cout << "l1 diff: " << normL1 << std::endl;
     std::cout << "lInf diff: " << normInf << std::endl;
+}
+
+void normAssertDetections(Mat ref, Mat out, double confThreshold,
+                          double scores_diff, double boxes_iou_diff)
+{
+    CV_Assert(ref.total() % 7 == 0);
+    CV_Assert(out.total() % 7 == 0);
+    ref = ref.reshape(1, ref.total() / 7);
+    out = out.reshape(1, out.total() / 7);
+
+    cv::Mat refClassIds, testClassIds;
+    ref.col(1).convertTo(refClassIds, CV_32SC1);
+    out.col(1).convertTo(testClassIds, CV_32SC1);
+    std::vector<float> refScores(ref.col(2)), testScores(out.col(2));
+    std::vector<cv::Rect2d> refBoxes = matToBoxes(ref.colRange(3, 7));
+    std::vector<cv::Rect2d> testBoxes = matToBoxes(out.colRange(3, 7));
+    normAssertDetections(refClassIds, refScores, refBoxes, testClassIds, testScores,
+                         testBoxes, confThreshold, scores_diff, boxes_iou_diff);
+}
+
+void normAssertDetections(
+        const std::vector<int>& refClassIds,
+        const std::vector<float>& refScores,
+        const std::vector<cv::Rect2d>& refBoxes,
+        const std::vector<int>& testClassIds,
+        const std::vector<float>& testScores,
+        const std::vector<cv::Rect2d>& testBoxes,
+        double confThreshold /*= 0.0*/,
+        double scores_diff /*= 1e-5*/, double boxes_iou_diff /*= 1e-4*/)
+{
+    std::vector<bool> matchedRefBoxes(refBoxes.size(), false);
+    for (int i = 0; i < testBoxes.size(); ++i)
+    {
+        double testScore = testScores[i];
+        if (testScore < confThreshold)
+            continue;
+
+        int testClassId = testClassIds[i];
+        const cv::Rect2d& testBox = testBoxes[i];
+        bool matched = false;
+        for (int j = 0; j < refBoxes.size() && !matched; ++j)
+        {
+            if (!matchedRefBoxes[j] && testClassId == refClassIds[j] &&
+                std::abs(testScore - refScores[j]) < scores_diff)
+            {
+                double interArea = (testBox & refBoxes[j]).area();
+                double iou = interArea / (testBox.area() + refBoxes[j].area() - interArea);
+                if (std::abs(iou - 1.0) < boxes_iou_diff)
+                {
+                    matched = true;
+                    matchedRefBoxes[j] = true;
+                }
+            }
+        }
+        if (matched)
+            std::cout << format("matched class %d with confidence %.2f", testClassId, testScore) << std::endl;
+        else
+            std::cout << cv::format("Unmatched prediction: class %d score %f box ",
+                                    testClassId, testScore) << testBox << std::endl;
+    }
+
+    // Check unmatched reference detections.
+    for (int i = 0; i < refBoxes.size(); ++i)
+    {
+        if (!matchedRefBoxes[i] && refScores[i] > confThreshold)
+        {
+            std::cout << cv::format("Unmatched reference: class %d score %f box ",
+                                    refClassIds[i], refScores[i]) << refBoxes[i] << std::endl;
+            CV_CheckLE(refScores[i], (float)confThreshold, "");
+        }
+    }
+}
+
+std::vector<cv::Rect2d> matToBoxes(const cv::Mat& m)
+{
+    CV_CheckEQ(m.type(), CV_32FC1, "");
+    CV_CheckEQ(m.dims, 2, "");
+    CV_CheckEQ(m.cols, 4, "");
+
+    std::vector<cv::Rect2d> boxes(m.rows);
+    for (int i = 0; i < m.rows; ++i)
+    {
+        CV_Assert(m.row(i).isContinuous());
+        const float* data = m.ptr<float>(i);
+        double l = data[0], t = data[1], r = data[2], b = data[3];
+        boxes[i] = cv::Rect2d(l, t, r - l, b - t);
+    }
+    return boxes;
 }

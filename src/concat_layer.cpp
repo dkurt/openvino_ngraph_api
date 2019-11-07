@@ -2,9 +2,10 @@
 
 using namespace cv;
 
-ConcatLayer::ConcatLayer(Ptr<dnn::Layer> cvLayer) : Layer(cvLayer) {}
+ConcatLayer::ConcatLayer(Ptr<dnn::Layer> cvLayer) : Layer(cvLayer) {
+  axis = cvLayer.dynamicCast<dnn::ConcatLayer>()->axis;
+}
 
 std::shared_ptr<ngraph::Node> ConcatLayer::initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs) {
-  const int axis = 1;
   return std::make_shared<ngraph::op::Concat>(inputs, axis);
 }

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.4.3)
 
 project(ngraph_demo CXX)
 
-find_package(OpenCV REQUIRED COMPONENTS dnn)
+find_package(OpenCV REQUIRED COMPONENTS dnn highgui)
 find_package(InferenceEngine REQUIRED)
 find_package(ngraph REQUIRED)
 

@@ -29,22 +29,28 @@ std::vector<cv::Rect2d> matToBoxes(const cv::Mat& m);
 
 int main(int argc, char** argv) {
   // Read source network from file.
-  // bool testSSD = false;
-  // dnn::Net cvNet = dnn::readNet(utils::fs::join("..", "bvlc_alexnet.caffemodel"),
-  //                               utils::fs::join("..", "bvlc_alexnet.prototxt"));
+  if (argc < 2) {
+    std::cout << "Please specify model to test: alexnet, squeezenet, ssd" << std::endl;
+    return 1;
+  }
+  std::string modelName = argv[1];
 
-  // dnn::Net cvNet = dnn::readNet(utils::fs::join("..", "squeezenet_v1.1.caffemodel"),
-  //                               utils::fs::join("..", "squeezenet_v1.1.prototxt"));
-
-  bool testSSD = true;
-  dnn::Net cvNet = dnn::readNet(utils::fs::join("..", "MobileNetSSD_deploy.caffemodel"),
-                                utils::fs::join("..", "MobileNetSSD_deploy.prototxt"));
-
-  // Get input shapes. Note: works for Caffe and IR models.
+  dnn::Net cvNet;
   std::vector<std::vector<int> > inLayerShapes;
   std::vector<std::vector<int> > outLayerShapes;
-  cvNet.getLayerShapes(std::vector<int>(), 0, inLayerShapes, outLayerShapes);
-  CV_Assert(!inLayerShapes.empty() && inLayerShapes[0].size() == 4);
+  if (modelName == "alexnet") {
+    cvNet = dnn::readNet(utils::fs::join("..", "bvlc_alexnet.caffemodel"),
+                         utils::fs::join("..", "bvlc_alexnet.prototxt"));
+    inLayerShapes = std::vector<std::vector<int> >({{1, 3, 227, 227}});
+  } else if (modelName == "squeezenet") {
+    cvNet = dnn::readNet(utils::fs::join("..", "squeezenet_v1.1.caffemodel"),
+                         utils::fs::join("..", "squeezenet_v1.1.prototxt"));
+    inLayerShapes = std::vector<std::vector<int> >({{1, 3, 227, 227}});
+  } else if (modelName == "ssd") {
+    cvNet = dnn::readNet(utils::fs::join("..", "MobileNetSSD_deploy.caffemodel"),
+                         utils::fs::join("..", "MobileNetSSD_deploy.prototxt"));
+    inLayerShapes = std::vector<std::vector<int> >({{1, 3, 300, 300}});
+  }
 
   // Create an input nGraph node.
   std::vector<size_t> inpShape(inLayerShapes[0].begin(), inLayerShapes[0].end());
@@ -122,9 +128,9 @@ int main(int argc, char** argv) {
   }
   infRequest.SetInput(inputBlobs);
 
-  if (testSSD) {
+  if (modelName == "ssd") {
     // Tets on real data.
-    dnn::blobFromImage(imread("example.jpg"), inputMat,
+    dnn::blobFromImage(imread("../example.jpg"), inputMat,
                        0.007843, Size(300, 300), Scalar(127.5, 127.5, 127.5));
   }
 
@@ -137,12 +143,13 @@ int main(int argc, char** argv) {
   // Run Inference Engine network.
   infRequest.Infer();
 
-  // Run OpenCV network with the same inputs
+  // // Run OpenCV network with the same inputs
   cvNet.setInput(inputMat);
+  cvNet.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
   Mat cvOut = cvNet.forward();
 
   // Compare outputs from OpenCV and Inference Engine.
-  if (testSSD)
+  if (modelName == "ssd")
     normAssertDetections(ieOutputMat, cvOut);
   else
     normAssert(ieOutputMat, cvOut);
@@ -225,9 +232,9 @@ void normAssertDetections(
             }
         }
         if (matched)
-            std::cout << format("matched class %d with confidence %.2f", testClassId, testScore) << std::endl;
+            std::cout << format("[ OK ] matched class %d with confidence %.2f", testClassId, testScore) << std::endl;
         else
-            std::cout << cv::format("Unmatched prediction: class %d score %f box ",
+            std::cout << cv::format("[ FAILED ] Unmatched prediction: class %d score %f box ",
                                     testClassId, testScore) << testBox << std::endl;
     }
 
@@ -236,7 +243,7 @@ void normAssertDetections(
     {
         if (!matchedRefBoxes[i] && refScores[i] > confThreshold)
         {
-            std::cout << cv::format("Unmatched reference: class %d score %f box ",
+            std::cout << cv::format("[ FAILED ] Unmatched reference: class %d score %f box ",
                                     refClassIds[i], refScores[i]) << refBoxes[i] << std::endl;
             CV_CheckLE(refScores[i], (float)confThreshold, "");
         }

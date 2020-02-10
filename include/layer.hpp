@@ -131,3 +131,19 @@ public:
 
   virtual std::shared_ptr<ngraph::Node> initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs);
 };
+
+class OpenCVNGraphLayer : public ngraph::op::Op
+{
+public:
+    static constexpr ngraph::NodeTypeInfo type_info{"GenericIE", 0};
+    const ngraph::NodeTypeInfo& get_type_info() const override { return type_info; }
+
+    OpenCVNGraphLayer() = default;
+
+    OpenCVNGraphLayer(const ngraph::Output<Node>& input);
+
+    void validate_and_infer_types() override;
+
+    virtual std::shared_ptr<ngraph::Node>
+                    copy_with_new_args(const ngraph::NodeVector& new_args) const override;
+};

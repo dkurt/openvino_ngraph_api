@@ -32,8 +32,10 @@ std::shared_ptr<ngraph::Node> PriorBoxLayer::initNGraph(std::vector<std::shared_
   auto upper_bounds = std::make_shared<ngraph::op::Constant>(ngraph::element::i64, ngraph::Shape{1}, std::vector<int64_t>{4});
   auto strides      = std::make_shared<ngraph::op::Constant>(ngraph::element::i64, ngraph::Shape{1}, std::vector<int64_t>{1});
 
-  auto slice_layer = std::make_shared<ngraph::op::DynSlice>(layer_shape, lower_bounds, upper_bounds, strides);
-  auto slice_image = std::make_shared<ngraph::op::DynSlice>(image_shape, lower_bounds, upper_bounds, strides);
+  auto slice_layer = std::make_shared<ngraph::op::v1::StridedSlice>(layer_shape,
+                                      lower_bounds, upper_bounds, strides, std::vector<int64_t>{}, std::vector<int64_t>{});
+  auto slice_image = std::make_shared<ngraph::op::v1::StridedSlice>(image_shape,
+                                      lower_bounds, upper_bounds, strides, std::vector<int64_t>{}, std::vector<int64_t>{});
 
   static std::vector<float> minSizes{60, 105, 150, 195, 240, 285};
   static std::vector<float> maxSizes{150, 195, 240, 285, 300};
@@ -49,5 +51,8 @@ std::shared_ptr<ngraph::Node> PriorBoxLayer::initNGraph(std::vector<std::shared_
   attrs.step = static_cast<float>(inputs[1]->get_shape()[2]) / inputs[0]->get_shape()[2];
   attrs.scale_all_sizes = true;
 
-  return std::make_shared<ngraph::op::PriorBox>(slice_layer, slice_image, attrs);
+  auto priorBox = std::make_shared<ngraph::op::PriorBox>(slice_layer, slice_image, attrs);
+  auto axis = std::make_shared<ngraph::op::Constant>(ngraph::element::i64, ngraph::Shape{1}, std::vector<int64_t>{0});
+  auto unsqueeze = std::make_shared<ngraph::op::Unsqueeze>(priorBox, axis);
+  return unsqueeze;
 }

@@ -10,6 +10,8 @@ std::shared_ptr<ngraph::op::Constant> wrapMatToConstant(const Mat& m,
 
 class Layer {
 public:
+  Layer(const std::string& name = "");
+
   Layer(Ptr<dnn::Layer> cvLayer);
 
   virtual std::shared_ptr<ngraph::Node> initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs) = 0;
@@ -132,18 +134,15 @@ public:
   virtual std::shared_ptr<ngraph::Node> initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs);
 };
 
-class OpenCVNGraphLayer : public ngraph::op::Op
-{
+class FakeQuantizeLayer : public Layer {
 public:
-    static constexpr ngraph::NodeTypeInfo type_info{"GenericIE", 0};
-    const ngraph::NodeTypeInfo& get_type_info() const override { return type_info; }
+  FakeQuantizeLayer(const Mat& inputLow, const Mat& inputHigh,
+                    const Mat& outputLow, const Mat& outputHigh,
+                    int levels);
 
-    OpenCVNGraphLayer() = default;
+  virtual std::shared_ptr<ngraph::Node> initNGraph(std::vector<std::shared_ptr<ngraph::Node> > inputs);
 
-    OpenCVNGraphLayer(const ngraph::Output<Node>& input);
-
-    void validate_and_infer_types() override;
-
-    virtual std::shared_ptr<ngraph::Node>
-                    copy_with_new_args(const ngraph::NodeVector& new_args) const override;
+private:
+  Mat inputLow, inputHigh, outputLow, outputHigh;
+  int levels;
 };

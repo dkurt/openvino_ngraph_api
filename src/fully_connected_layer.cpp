@@ -18,7 +18,8 @@ std::shared_ptr<ngraph::Node> FullyConnectedLayer::initNGraph(std::vector<std::s
   auto new_shape = std::make_shared<ngraph::op::Constant>(ngraph::element::i64, ngraph::Shape{2}, data.data());
   auto reshapedInp = std::make_shared<ngraph::op::v1::Reshape>(inputs[0], new_shape, true);
 
-  auto ieWeights = wrapMatToConstant(weights);
+  CV_Assert(inputs.size() == 2);
+  auto ieWeights = inputs[1];
   auto matmul = std::make_shared<ngraph::op::MatMul>(reshapedInp, ieWeights, false, true);
 
   if (!biases.empty()) {

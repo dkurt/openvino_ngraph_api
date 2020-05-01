@@ -39,15 +39,19 @@ which is not supported by OpenCV readers yet.
     ```sh
     $ ./ngraph_demo alexnet
 
-    l1 diff: 4.3695e-10
-    lInf diff: 3.25963e-09
+    Reference range: [1.05861e-07, 0.655111]
+    l1 diff: 4.21329e-10
+    lInf diff: 8.9407e-08
+    inference time: 17.4656ms
     ```
 
     ```sh
     $ ./ngraph_demo squeezenet
 
-    l1 diff: 7.49727e-10
-    lInf diff: 1.41561e-07
+    Reference range: [2.68397e-08, 0.258784]
+    l1 diff: 1.21957e-09
+    lInf diff: 2.38419e-07
+    inference time: 6.62212ms
     ```
 
     ```sh
@@ -59,4 +63,16 @@ which is not supported by OpenCV readers yet.
     [ OK ] matched class 13 with confidence 1.00
     [ OK ] matched class 15 with confidence 0.96
     [ OK ] matched class 15 with confidence 0.36
+    inference time: 20.7912ms
     ```
+
+    ```sh
+    $ ./ngraph_demo alexnet_quant
+
+    Reference range: [1.26981e-07, 0.625701]
+    l1 diff: 6.70524e-05
+    lInf diff: 0.0294101
+    inference time: 11.1459ms
+    ```
+
+Tested on `Intel(R) Core(TM) i5-4460  CPU @ 3.20GHz x4` with Intel OpenVINO 2020.2

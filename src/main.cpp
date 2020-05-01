@@ -5,12 +5,13 @@
 #include <inference_engine.hpp>
 
 #include "layer.hpp"
+#include "ir_weights.hpp"
 
 using namespace cv;
 
 static void genData(const std::vector<size_t>& dims, Mat& m, InferenceEngine::Blob::Ptr& dataPtr);
 
-void normAssert(Mat ref, Mat test, double l1 = 0.00001, double lInf = 0.0001);
+void normAssert(Mat ref, Mat test, double l1 = 1e-5, double lInf = 1e-4);
 
 void normAssertDetections(Mat ref, Mat out, double confThreshold = 1e-6,
                           double scores_diff = 1e-5, double boxes_iou_diff = 1e-4);
@@ -30,7 +31,7 @@ std::vector<cv::Rect2d> matToBoxes(const cv::Mat& m);
 int main(int argc, char** argv) {
   // Read source network from file.
   if (argc < 2) {
-    std::cout << "Please specify model to test: alexnet, squeezenet, ssd" << std::endl;
+    std::cout << "Please specify model to test: alexnet, squeezenet, ssd, alexnet_quant" << std::endl;
     return 1;
   }
   std::string modelName = argv[1];
@@ -38,10 +39,16 @@ int main(int argc, char** argv) {
   dnn::Net cvNet;
   std::vector<std::vector<int> > inLayerShapes;
   std::vector<std::vector<int> > outLayerShapes;
-  if (modelName == "alexnet") {
+  IRWeights* lowPrecisionWeights = nullptr;
+
+  if (modelName == "alexnet" || modelName == "alexnet_quant") {
     cvNet = dnn::readNet(utils::fs::join("..", "bvlc_alexnet.caffemodel"),
                          utils::fs::join("..", "bvlc_alexnet.prototxt"));
     inLayerShapes = std::vector<std::vector<int> >({{1, 3, 227, 227}});
+    if (modelName == "alexnet_quant") {
+      lowPrecisionWeights = new IRWeights(utils::fs::join("..", "bvlc_alexnet_quant.xml"),
+                                          utils::fs::join("..", "bvlc_alexnet_quant.bin"));
+    }
   } else if (modelName == "squeezenet") {
     cvNet = dnn::readNet(utils::fs::join("..", "squeezenet_v1.1.caffemodel"),
                          utils::fs::join("..", "squeezenet_v1.1.prototxt"));
@@ -50,6 +57,9 @@ int main(int argc, char** argv) {
     cvNet = dnn::readNet(utils::fs::join("..", "MobileNetSSD_deploy.caffemodel"),
                          utils::fs::join("..", "MobileNetSSD_deploy.prototxt"));
     inLayerShapes = std::vector<std::vector<int> >({{1, 3, 300, 300}});
+  } else {
+    std::cout << "Unexpected model name: " << modelName << std::endl;
+    return 1;
   }
 
   // Create an input nGraph node.
@@ -65,11 +75,15 @@ int main(int argc, char** argv) {
   for (int i = 0, n = cvNet.getLayerNames().size(); i < n; ++i) {
     Ptr<dnn::Layer> cvLayer = cvNet.getLayer(i + 1);
 
+    bool needInputQuantization = false;
     std::vector<std::shared_ptr<ngraph::Node> > inputs;
     for (const auto& inp : cvNet.getLayerInputs(i + 1)) {
       int id = cvNet.getLayerId(inp->name);
       CV_Assert(nodes.find(id) != nodes.end());
       inputs.push_back(nodes[id]);
+
+      needInputQuantization |= (inp->type != "Convolution") &&
+                               (inp->type != "Pooling");
     }
     CV_Assert(!inputs.empty());
 
@@ -77,13 +91,65 @@ int main(int argc, char** argv) {
     if (cvLayer->type == "") {
     } else if (cvLayer->type == "Convolution") {
       l = Ptr<Layer>(new ConvolutionLayer(cvLayer));
+      if (lowPrecisionWeights) {
+        if (needInputQuantization) {
+          // Quantize input
+          Mat inpLow = lowPrecisionWeights->next();
+          Mat inpHigh = lowPrecisionWeights->next();
+          Mat outLow = lowPrecisionWeights->next();
+          Mat outHigh = lowPrecisionWeights->next();
+          inputs[0] = FakeQuantizeLayer(inpLow, inpHigh, outLow, outHigh, 256).initNGraph({inputs[0]});
+        }
+
+        // Quantize weights
+        inputs.push_back(wrapMatToConstant(lowPrecisionWeights->next()));
+        Mat inpLow = lowPrecisionWeights->next();
+        Mat inpHigh = lowPrecisionWeights->next();
+        Mat outLow = lowPrecisionWeights->next();
+        Mat outHigh = lowPrecisionWeights->next();
+        inputs[1] = FakeQuantizeLayer(inpLow, inpHigh, outLow, outHigh, 255).initNGraph({inputs[1]});
+
+        lowPrecisionWeights->next();  // Skip biases
+      } else {
+        inputs.push_back(wrapMatToConstant(cvLayer->blobs[0]));
+      }
     } else if (cvLayer->type == "ReLU") {
       l = Ptr<Layer>(new ReLULayer(cvLayer));
     } else if (cvLayer->type == "LRN") {
       l = Ptr<Layer>(new LRNLayer(cvLayer));
     } else if (cvLayer->type == "Pooling") {
+      if (lowPrecisionWeights && needInputQuantization) {
+        // Quantize input
+        Mat inpLow = lowPrecisionWeights->next();
+        Mat inpHigh = lowPrecisionWeights->next();
+        Mat outLow = lowPrecisionWeights->next();
+        Mat outHigh = lowPrecisionWeights->next();
+        inputs[0] = FakeQuantizeLayer(inpLow, inpHigh, outLow, outHigh, 256).initNGraph({inputs[0]});
+      }
       l = Ptr<Layer>(new PoolingLayer(cvLayer));
     } else if (cvLayer->type == "InnerProduct") {
+      if (lowPrecisionWeights) {
+        if (needInputQuantization) {
+          // Quantize input
+          Mat inpLow = lowPrecisionWeights->next();
+          Mat inpHigh = lowPrecisionWeights->next();
+          Mat outLow = lowPrecisionWeights->next();
+          Mat outHigh = lowPrecisionWeights->next();
+          inputs[0] = FakeQuantizeLayer(inpLow, inpHigh, outLow, outHigh, 256).initNGraph({inputs[0]});
+        }
+
+        // Quantize weights
+        inputs.push_back(wrapMatToConstant(lowPrecisionWeights->next()));
+        Mat inpLow = lowPrecisionWeights->next();
+        Mat inpHigh = lowPrecisionWeights->next();
+        Mat outLow = lowPrecisionWeights->next();
+        Mat outHigh = lowPrecisionWeights->next();
+        inputs[1] = FakeQuantizeLayer(inpLow, inpHigh, outLow, outHigh, 255).initNGraph({inputs[1]});
+
+        lowPrecisionWeights->next();  // Skip biases
+      } else {
+        inputs.push_back(wrapMatToConstant(cvLayer->blobs[0]));
+      }
       l = Ptr<Layer>(new FullyConnectedLayer(cvLayer));
     } else if (cvLayer->type == "Softmax") {
       l = Ptr<Layer>(new SoftMaxLayer(cvLayer));
@@ -152,7 +218,16 @@ int main(int argc, char** argv) {
   if (modelName == "ssd")
     normAssertDetections(ieOutputMat, cvOut);
   else
-    normAssert(ieOutputMat, cvOut);
+    normAssert(ieOutputMat, cvOut, 7e-5, lowPrecisionWeights ? 3e-2 : 1e-4);
+
+  const int n = 100;
+  TickMeter tm;
+  tm.start();
+  for (int i = 0; i < n; ++i) {
+    infRequest.Infer();
+  }
+  tm.stop();
+  std::cout << "inference time: " << tm.getTimeMilli() / n << "ms" << std::endl;
 
   return 0;
 }
@@ -160,7 +235,7 @@ int main(int argc, char** argv) {
 void genData(const std::vector<size_t>& dims, Mat& m, InferenceEngine::Blob::Ptr& dataPtr)
 {
     m.create(std::vector<int>(dims.begin(), dims.end()), CV_32F);
-    randu(m, -1, 1);
+    randu(m, 0, 256);
     dataPtr = InferenceEngine::make_shared_blob<float>({
         InferenceEngine::Precision::FP32,
         dims,
@@ -169,6 +244,10 @@ void genData(const std::vector<size_t>& dims, Mat& m, InferenceEngine::Blob::Ptr
 
 void normAssert(Mat ref, Mat test, double l1, double lInf)
 {
+    double minV, maxV;
+    minMaxLoc(ref, &minV, &maxV);
+    std::cout << "Reference range: [" << minV << ", " << maxV << "]" << std::endl;
+
     double normL1 = norm(ref, test, cv::NORM_L1) / ref.total();
     CV_CheckLE(normL1, l1, "l1");
 

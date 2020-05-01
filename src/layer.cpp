@@ -1,5 +1,7 @@
 #include "layer.hpp"
 
+Layer::Layer(const std::string& name_) : name(name_) {}
+
 Layer::Layer(Ptr<dnn::Layer> cvLayer) : name(cvLayer->name) {}
 
 std::shared_ptr<ngraph::op::Constant> wrapMatToConstant(const Mat& m, const std::vector<size_t>& shape) {

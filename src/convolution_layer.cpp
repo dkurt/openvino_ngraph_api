@@ -22,14 +22,17 @@ std::shared_ptr<ngraph::Node> ConvolutionLayer::initNGraph(std::vector<std::shar
   const int inpChannels = inputs[0]->get_shape()[1];
   int group = inpChannels / weights.size[1];
 
-  std::vector<size_t> kernel_shape(&weights.size[0], &weights.size[0] + 4);
+  CV_Assert(inputs.size() == 2);
+  auto ieWeights = inputs[1];
   if (group != 1)
   {
-    kernel_shape[0] /= group;
-    kernel_shape.insert(kernel_shape.begin(), group);
-  }
+    std::vector<size_t> shape(&weights.size[0], &weights.size[0] + 4);
+    shape[0] /= group;
+    shape.insert(shape.begin(), group);
 
-  auto ieWeights = wrapMatToConstant(weights, kernel_shape);
+    auto shapeNode = std::make_shared<ngraph::op::Constant>(ngraph::element::i64, ngraph::Shape{shape.size()}, shape.data());
+    ieWeights = std::make_shared<ngraph::op::v1::Reshape>(ieWeights, shapeNode, true);
+  }
 
   auto pad_type = ngraph::op::PadType::EXPLICIT;
   if (!padMode.empty()) {
